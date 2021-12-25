@@ -4,6 +4,7 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PostEntity } from './entities/post.entity';
+import { SearchPostDto } from './dto/search-post.dto';
 
 @Injectable()
 export class PostService {
@@ -17,15 +18,70 @@ export class PostService {
   }
 
   findAll() {
-    return this.repository.find();
+    return this.repository.find({
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  async popular() {
+    const qb = this.repository.createQueryBuilder();
+
+    qb.orderBy('views', 'DESC');
+    qb.limit(10);
+
+    const [posts, total] = await qb.getManyAndCount();
+    return {
+      posts,
+      total,
+    };
+  }
+
+  async search(dto: SearchPostDto) {
+    const qb = this.repository.createQueryBuilder('p');
+
+    qb.limit(dto.limit || 0);
+    qb.take(dto.take || 10);
+
+    if (dto.views) {
+      qb.orderBy('views', dto.views);
+    }
+
+    if (dto.title) {
+      qb.andWhere(`p.title ILIKE :title`);
+    }
+    if (dto.body) {
+      qb.andWhere(`p.body ILIKE :body`);
+    }
+    if (dto.tag) {
+      qb.andWhere(`p.tags ILIKE :tag`);
+    }
+
+    qb.setParameters({
+      title: `%${dto.title}%`,
+      body: `%${dto.body}%`,
+      tag: `%${dto.tag}%`,
+      views: dto.views || '',
+    });
+
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total };
   }
 
   async findOne(id: number) {
-    const find = await this.repository.findOne(+id);
+    const result = await this.repository
+      .createQueryBuilder('posts')
+      .whereInIds(id)
+      .update()
+      .set({
+        views: () => 'views + 1',
+      })
+      .execute(); //Для execute нужно указывать полное название таблицы
 
-    if (!find) {
-      throw new NotFoundException('Статья не найдена');
-    }
+    // if (!find) {
+    //   throw new NotFoundException('Статья не найдена');
+    // }
 
     return this.repository.findOne(id);
   }
